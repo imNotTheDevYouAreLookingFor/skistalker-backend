@@ -79,7 +79,7 @@ function sendToUser(userId, message) {
 }
 
 // ── Shouts ───────────────────────────────────────────────────────────────────
-const SHOUT_MAX = 20;
+const SHOUT_MAX = 50;
 const SHOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 /** @type {{ id: string, userId: string, name: string, avatarUrl: string, lat: number, lng: number, altitude?: number, text: string, timestamp: number, announcement: boolean, pin?: boolean }[]} */

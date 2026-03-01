@@ -54,6 +54,9 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   let userId = null;
 
   ws.on('message', (raw) => {
@@ -80,10 +83,11 @@ wss.on('connection', (ws) => {
         avatarUrl: msg.avatarUrl || '',
       });
       // Send current snapshot + shout history to the newly connected user
-      ws.send(JSON.stringify({ type: 'snapshot', users: getSnapshot() }));
+      const snap = getSnapshot();
+      ws.send(JSON.stringify({ type: 'snapshot', users: snap }));
       ws.send(JSON.stringify({ type: 'shouts', shouts: getShouts() }));
       // Broadcast updated snapshot to everyone
-      broadcast({ type: 'snapshot', users: getSnapshot() });
+      broadcast({ type: 'snapshot', users: snap });
       return;
     }
 
@@ -149,6 +153,18 @@ wss.on('connection', (ws) => {
     console.error('[ws] error:', err.message);
   });
 });
+
+// ── Ping / pong keepalive ─────────────────────────────────────────────────────
+// Mobile networks can silently drop WebSocket connections without triggering
+// the close event, leaving zombie users until eviction. Pinging every 30s
+// detects dead connections quickly.
+setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) { ws.terminate(); return; }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30_000);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 server.listen(port, '0.0.0.0', () => {
