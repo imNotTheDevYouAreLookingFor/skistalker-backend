@@ -13,6 +13,7 @@ const {
   addShout,
   getShouts,
   removeShout,
+  extendPinExpiry,
 } = require('./state.js');
 
 const port = parseInt(process.env.PORT || '8080', 10);
@@ -136,6 +137,33 @@ wss.on('connection', (ws) => {
     if (msg.type === 'remove_shout' && userId && msg.id) {
       const removed = removeShout(msg.id, userId);
       if (removed) broadcast({ type: 'shout_removed', id: msg.id });
+      return;
+    }
+
+    // ── pin_reply ─────────────────────────────────────────────────────────────
+    if (msg.type === 'pin_reply' && userId && msg.pinId && msg.text) {
+      const user = getSnapshot().find((u) => u.userId === userId);
+      if (!user) return;
+      const targetPin = getShouts().find((s) => s.id === msg.pinId && s.pin);
+      if (!targetPin) return;
+      const reply = {
+        id: `${userId}-${Date.now()}`,
+        userId,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        lat: targetPin.lat,
+        lng: targetPin.lng,
+        text: msg.text.slice(0, 200),
+        timestamp: Date.now(),
+        announcement: false,
+        pin: false,
+        replyToPinId: msg.pinId,
+      };
+      const accepted = addShout(reply);
+      if (!accepted) return;
+      const updatedPin = extendPinExpiry(msg.pinId);
+      broadcast({ type: 'shout', shout: reply });
+      if (updatedPin) broadcast({ type: 'shout', shout: updatedPin });
       return;
     }
   });

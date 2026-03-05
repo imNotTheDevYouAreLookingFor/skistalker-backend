@@ -79,10 +79,18 @@ function sendToUser(userId, message) {
 }
 
 // ── Shouts ───────────────────────────────────────────────────────────────────
-const SHOUT_MAX = 50;
+const SHOUT_MAX = 100;
 const SHOUT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PIN_REPLY_EXTEND_MS = 10 * 60 * 1000; // 10 minutes extension per reply
 
-/** @type {{ id: string, userId: string, name: string, avatarUrl: string, lat: number, lng: number, altitude?: number, text: string, timestamp: number, announcement: boolean, pin?: boolean }[]} */
+/**
+ * @type {{
+ *   id: string, userId: string, name: string, avatarUrl: string,
+ *   lat: number, lng: number, altitude?: number, text: string,
+ *   timestamp: number, announcement: boolean, pin?: boolean,
+ *   expiresAt?: number, replyToPinId?: string
+ * }[]}
+ */
 const shouts = [];
 
 function addShout(shout) {
@@ -95,6 +103,10 @@ function addShout(shout) {
     // Max 3 pins per user
     const pinCount = shouts.filter((s) => s.userId === shout.userId && s.pin).length;
     if (pinCount >= 3) return false;
+    // Set initial expiry: 30 minutes from creation
+    if (!shout.expiresAt) {
+      shout.expiresAt = shout.timestamp + SHOUT_TTL_MS;
+    }
   }
   shouts.push(shout);
   if (shouts.length > SHOUT_MAX) shouts.shift();
@@ -102,14 +114,44 @@ function addShout(shout) {
 }
 
 function getShouts() {
-  const cutoff = Date.now() - SHOUT_TTL_MS;
-  return shouts.filter((s) => s.timestamp > cutoff);
+  const now = Date.now();
+  const cutoff = now - SHOUT_TTL_MS;
+  return shouts.filter((s) => {
+    if (s.pin) {
+      // Pins use expiresAt; fall back to timestamp + TTL for pins created before this field
+      const exp = s.expiresAt ?? (s.timestamp + SHOUT_TTL_MS);
+      return exp > now;
+    }
+    if (s.replyToPinId) {
+      // Replies live as long as their parent pin lives — filter out orphaned replies
+      const parentAlive = shouts.some((p) => p.id === s.replyToPinId && p.pin && (p.expiresAt ?? (p.timestamp + SHOUT_TTL_MS)) > now);
+      return parentAlive;
+    }
+    return s.timestamp > cutoff;
+  });
+}
+
+/** Extends a pin's expiry by PIN_REPLY_EXTEND_MS. Returns the updated pin or null. */
+function extendPinExpiry(pinId) {
+  const pin = shouts.find((s) => s.id === pinId && s.pin);
+  if (!pin) return null;
+  const now = Date.now();
+  pin.expiresAt = Math.max(pin.expiresAt ?? now, now) + PIN_REPLY_EXTEND_MS;
+  return pin;
 }
 
 function removeShout(id, requestingUserId) {
   const idx = shouts.findIndex((s) => s.id === id && s.userId === requestingUserId);
   if (idx === -1) return false;
-  shouts.splice(idx, 1);
+  // Also remove all replies to this pin
+  const toRemove = new Set([id]);
+  for (let i = shouts.length - 1; i >= 0; i--) {
+    if (shouts[i].replyToPinId && toRemove.has(shouts[i].replyToPinId)) {
+      shouts.splice(i, 1);
+    }
+  }
+  const pinIdx = shouts.findIndex((s) => s.id === id);
+  if (pinIdx !== -1) shouts.splice(pinIdx, 1);
   return true;
 }
 
@@ -123,5 +165,6 @@ module.exports = {
   addShout,
   getShouts,
   removeShout,
+  extendPinExpiry,
   sendToUser,
 };
