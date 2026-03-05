@@ -136,7 +136,7 @@ function extendPinExpiry(pinId) {
   const pin = shouts.find((s) => s.id === pinId && s.pin);
   if (!pin) return null;
   const now = Date.now();
-  pin.expiresAt = Math.max(pin.expiresAt ?? now, now) + PIN_REPLY_EXTEND_MS;
+  pin.expiresAt = Math.max(pin.expiresAt ?? now, now + PIN_REPLY_EXTEND_MS);
   return pin;
 }
 
