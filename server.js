@@ -14,6 +14,9 @@ const {
   getShouts,
   removeShout,
   extendPinExpiry,
+  getBears,
+  getBearScores,
+  tryCollectBear,
 } = require('./state.js');
 
 const port = parseInt(process.env.PORT || '8080', 10);
@@ -125,10 +128,12 @@ wss.on('connection', (ws) => {
         name: msg.name || 'Skier',
         avatarUrl: msg.avatarUrl || '',
       });
-      // Send current snapshot + shout history to the newly connected user
+      // Send current snapshot + shout history + bears to the newly connected user
       const snap = getSnapshot();
       ws.send(JSON.stringify({ type: 'snapshot', users: snap }));
       ws.send(JSON.stringify({ type: 'shouts', shouts: getShouts() }));
+      ws.send(JSON.stringify({ type: 'bears', bears: getBears() }));
+      ws.send(JSON.stringify({ type: 'bear_scores', scores: getBearScores() }));
       // Broadcast updated snapshot to everyone
       broadcast({ type: 'snapshot', users: snap });
       return;
@@ -149,6 +154,17 @@ wss.on('connection', (ws) => {
         msg.altitude ?? 0,
       );
       broadcast({ type: 'snapshot', users: getSnapshot() });
+
+      // Check if user collected a bear
+      const user = getSnapshot().find((u) => u.userId === userId);
+      if (user) {
+        const collected = tryCollectBear(userId, user.name, msg.lat, msg.lng);
+        if (collected) {
+          broadcast({ type: 'bear_collected', bear: collected.bear, collector: collected.collector });
+          broadcast({ type: 'bears', bears: getBears() });
+          broadcast({ type: 'bear_scores', scores: getBearScores() });
+        }
+      }
       return;
     }
 
