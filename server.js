@@ -34,6 +34,48 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // ── REST position update (for background location tasks) ────────────────
+  if (req.method === 'POST' && req.url === '/position') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const msg = JSON.parse(body);
+        if (SKI_SECRET && msg.token !== SKI_SECRET) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        if (!msg.userId || typeof msg.lat !== 'number' || typeof msg.lng !== 'number') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing userId, lat, or lng' }));
+          return;
+        }
+        // Ensure user exists (they may have been evicted while backgrounded)
+        addOrUpdateUser(msg.userId, {
+          ws: null,
+          name: msg.name || 'Skier',
+          avatarUrl: msg.avatarUrl || '',
+        });
+        updatePosition(
+          msg.userId,
+          msg.lat,
+          msg.lng,
+          msg.speed ?? 0,
+          msg.heading ?? 0,
+          msg.altitude ?? 0,
+        );
+        broadcast({ type: 'snapshot', users: getSnapshot() });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('not found');
 });

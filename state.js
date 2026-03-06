@@ -6,7 +6,10 @@ const users = new Map();
 function addOrUpdateUser(userId, data) {
   const existing = users.get(userId);
   if (existing) {
+    // Don't overwrite a live ws with null (REST position updates)
+    if (data.ws === null && existing.ws) delete data.ws;
     Object.assign(existing, data);
+    delete existing.disconnectedAt;
   } else {
     users.set(userId, {
       userId,
