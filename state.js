@@ -36,17 +36,22 @@ function updatePosition(userId, lat, lng, speed, heading, altitude) {
 }
 
 function removeUser(userId) {
-  users.delete(userId);
+  // Don't delete — just mark as disconnected so they stay visible to others
+  const user = users.get(userId);
+  if (user) {
+    user.ws = null;
+    user.disconnectedAt = Date.now();
+  }
 }
 
 function getSnapshot() {
-  return Array.from(users.values()).map(({ ws: _ws, ...session }) => session);
+  return Array.from(users.values()).map(({ ws: _ws, disconnectedAt: _dc, ...session }) => session);
 }
 
 function broadcast(message) {
   const data = JSON.stringify(message);
   for (const user of users.values()) {
-    if (user.ws.readyState === 1 /* OPEN */) {
+    if (user.ws && user.ws.readyState === 1 /* OPEN */) {
       user.ws.send(data);
     }
   }
@@ -56,7 +61,7 @@ function getUserCount() {
   return users.size;
 }
 
-const STALE_MS = 5 * 60 * 1000; // 5 minutes
+const STALE_MS = 30 * 60 * 1000; // 30 minutes
 
 function evictStaleUsers() {
   const cutoff = Date.now() - STALE_MS;
@@ -73,7 +78,7 @@ setInterval(evictStaleUsers, 60_000);
 
 function sendToUser(userId, message) {
   const user = users.get(userId);
-  if (user && user.ws.readyState === 1) {
+  if (user && user.ws && user.ws.readyState === 1) {
     user.ws.send(JSON.stringify(message));
   }
 }
