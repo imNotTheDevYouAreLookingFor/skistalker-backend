@@ -163,6 +163,88 @@ function removeShout(id, requestingUserId) {
   return true;
 }
 
+// ── Bears 🐻 ─────────────────────────────────────────────────────────────────
+const MAX_BEARS = 3;
+const BEAR_COLLECT_RADIUS_M = 50;
+const BEAR_SPAWN_MIN_MS = 30 * 60 * 1000; // 30 minutes
+const BEAR_SPAWN_MAX_MS = 60 * 60 * 1000; // 60 minutes
+
+// Hopfgarten/Skiwelt area bounding box for random spawning
+const BEAR_BOUNDS = {
+  minLat: 47.43, maxLat: 47.50,
+  minLng: 12.10, maxLng: 12.25,
+};
+
+/** @type {{ id: string, lat: number, lng: number, spawnedAt: number }[]} */
+const bears = [];
+
+/** @type {Map<string, { userId: string, name: string, score: number }>} */
+const bearScores = new Map();
+
+function haversineM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function spawnBear() {
+  if (bears.length >= MAX_BEARS) return null;
+  const bear = {
+    id: `bear-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    lat: BEAR_BOUNDS.minLat + Math.random() * (BEAR_BOUNDS.maxLat - BEAR_BOUNDS.minLat),
+    lng: BEAR_BOUNDS.minLng + Math.random() * (BEAR_BOUNDS.maxLng - BEAR_BOUNDS.minLng),
+    spawnedAt: Date.now(),
+  };
+  bears.push(bear);
+  console.log('[bears] spawned:', bear.id, 'at', bear.lat.toFixed(4), bear.lng.toFixed(4), `(${bears.length}/${MAX_BEARS})`);
+  return bear;
+}
+
+function tryCollectBear(userId, userName, lat, lng) {
+  for (let i = 0; i < bears.length; i++) {
+    const dist = haversineM(lat, lng, bears[i].lat, bears[i].lng);
+    if (dist <= BEAR_COLLECT_RADIUS_M) {
+      const bear = bears.splice(i, 1)[0];
+      const entry = bearScores.get(userId) || { userId, name: userName, score: 0 };
+      entry.score += 1;
+      entry.name = userName; // keep name fresh
+      bearScores.set(userId, entry);
+      console.log('[bears] collected:', bear.id, 'by', userName, 'score:', entry.score);
+      return { bear, collector: entry };
+    }
+  }
+  return null;
+}
+
+function getBears() {
+  return bears.map(({ id, lat, lng, spawnedAt }) => ({ id, lat, lng, spawnedAt }));
+}
+
+function getBearScores() {
+  return Array.from(bearScores.values()).sort((a, b) => b.score - a.score);
+}
+
+// Schedule next bear spawn
+function scheduleNextSpawn() {
+  const delay = BEAR_SPAWN_MIN_MS + Math.random() * (BEAR_SPAWN_MAX_MS - BEAR_SPAWN_MIN_MS);
+  const mins = Math.round(delay / 60000);
+  console.log('[bears] next spawn in', mins, 'minutes');
+  setTimeout(() => {
+    const bear = spawnBear();
+    if (bear) {
+      broadcast({ type: 'bears', bears: getBears() });
+    }
+    scheduleNextSpawn();
+  }, delay);
+}
+
+// Spawn initial bear + start the cycle
+spawnBear();
+scheduleNextSpawn();
+
 module.exports = {
   addOrUpdateUser,
   updatePosition,
@@ -175,4 +257,8 @@ module.exports = {
   removeShout,
   extendPinExpiry,
   sendToUser,
+  getBears,
+  getBearScores,
+  tryCollectBear,
+  spawnBear,
 };
