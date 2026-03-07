@@ -49,6 +49,20 @@ const server = createServer((req, res) => {
           res.end(JSON.stringify({ error: 'Unauthorized' }));
           return;
         }
+        // Unwrap nested userId (same issue as WS auth)
+        let restUserId = msg.userId;
+        for (let i = 0; i < 10; i++) {
+          if (typeof restUserId === 'object' && restUserId !== null && restUserId.userId) {
+            restUserId = restUserId.userId;
+            continue;
+          }
+          if (typeof restUserId === 'string') {
+            try { const p = JSON.parse(restUserId); if (p && p.userId) { restUserId = p.userId; continue; } } catch {}
+          }
+          break;
+        }
+        msg.userId = restUserId;
+
         if (!msg.userId || typeof msg.lat !== 'number' || typeof msg.lng !== 'number') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing userId, lat, or lng' }));
@@ -120,7 +134,19 @@ wss.on('connection', (ws) => {
         ws.close(4001, 'Unauthorized');
         return;
       }
+      // Unwrap nested userId objects — some clients send the full user object
+      // as userId, and on reconnect it nests further: {userId:{userId:{userId:...}}}
       userId = msg.userId;
+      for (let i = 0; i < 10; i++) {
+        if (typeof userId === 'object' && userId !== null && userId.userId) {
+          userId = userId.userId;
+          continue;
+        }
+        if (typeof userId === 'string') {
+          try { const p = JSON.parse(userId); if (p && p.userId) { userId = p.userId; continue; } } catch {}
+        }
+        break;
+      }
       console.log('[ws] auth userId=%s name=%s', userId, msg.name);
       wsToUserId.set(ws, userId);
       addOrUpdateUser(userId, {
